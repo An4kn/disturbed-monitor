@@ -1,0 +1,74 @@
+# p2p_node.py
+import zmq
+import threading
+import time
+import sys
+import json
+
+class DisturbedMonitor():
+    def __init__(self, node_id, peer_ports):
+        self.node_id = node_id
+        self.peer_ports = peer_ports
+        self.critical_section_queue = []
+        self.CAPACITY = 10
+        self.buffer = []
+        self.in_index = 0
+
+        context = zmq.Context()
+        self.pub_socket = context.socket(zmq.PUB)
+        pub_port = 5556
+        self.pub_socket.bind(f"tcp://*:{pub_port}")
+        self.sub_socket = context.socket(zmq.SUB)
+        port = 5557
+        self.sub_socket.connect(f"tcp://172.17.0.2:{port}")
+        self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+def EnterCriticalSection(device_processid, critical_section_queue,CAPACITY,buffer,in_index):
+    pass
+
+def get_message(sub_socket,pub_socket,device_processid,critical_section_queue):
+    message = sub_socket.recv()
+    msg_response = message.decode('utf-8')
+    data = json.loads(msg_response)
+    
+    if data["msg_type"] == "Replay":
+        processid_want_critical_section = critical_section_queue[0]
+        if processid_want_critical_section[0] == device_processid:
+            EnterCriticalSection(device_processid, critical_section_queue, 10, [], 0)
+            critical_section_queue.pop(0)
+
+    elif data["msg_type"] == "Request":
+        critical_section_queue.append(data["process"],data["time"]) # collections queue.Queue() #moze dodac
+        critical_section_queue.sort() #nie wiem w sumie moze to uproscic aby mniejsza zlozonosc obliczeniowa i mnoze zwykle sortowanie bez lambdy jka nie  bedzi edzialac  key=lambda x: x["time"]????
+        
+    elif data["msg_type"] == "Release":
+        pass
+
+    elif data["msg_type"] == "ProcessEndWork":
+        pass
+
+
+node_id = "B"
+peer_ports = ["5556", "5557"]  # np. ["5556", "5557"]
+critical_section_queue = []
+context = zmq.Context()
+
+pub_socket = context.socket(zmq.PUB)
+pub_port = 5556
+pub_socket.bind(f"tcp://*:{pub_port}")
+sub_socket = context.socket(zmq.SUB)
+port = 5557
+sub_socket.connect(f"tcp://172.17.0.2:{port}")
+sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+time.sleep(4)  # Allow some time for the subscriber to connect
+
+Process = "P2"
+request_data = {"msg_type": "Request" , "process": Process, "time": time.time()}
+message_request = json.dumps(request_data).encode('utf-8') #mozliwe ze nieporzebne
+pub_socket.send(message_request) #protocol buffers
+
+
+
+
+
