@@ -152,9 +152,8 @@ def Producer(DisturbedMonitor,in_index, buffer, out_index):
         counter += 1
         buffer[in_index] = counter
         print("Producer produced:", counter)
-        # print("Buffer state:", buffer)
         in_index = (in_index + 1) % CAPACITY
-        time.sleep(1)
+        # time.sleep(1)
 
         DisturbedMonitor.notify(buffer,in_index,out_index,"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
 
