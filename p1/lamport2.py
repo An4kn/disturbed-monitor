@@ -2,6 +2,7 @@
 import zmq
 import time
 import json
+from enum import Enum
 
 class DisturbedMonitor:
     def __init__(self, input_device_process_id,input_all_active_processes, input_pub_socket, input_sub_socket,input_time_sleep): #Dane podstawowe
@@ -30,17 +31,18 @@ class DisturbedMonitor:
             msg_response = message.decode('utf-8')
             data = json.loads(msg_response)
             print("queue: ", self.critical_section_queue)
+
             
-            if data["msg_type"] == "Replay" and data["process"] == self.device_process_id:
+            if data["msg_type"] == MessageType.REPLAY.value and data["process"] == self.device_process_id:
                 response_shared_data = self.handle_replay_message(data, shared_data)                  
                              
-            elif data["msg_type"] == "Request":
+            elif data["msg_type"] == MessageType.REQUEST.value:
                 response_shared_data = self.handle_request_message(data)
 
-            elif data["msg_type"] == "Release":   
+            elif data["msg_type"] == MessageType.RELEASE.value:   
                 response_shared_data = self.handle_release_message(data, shared_data)
                                             
-            elif data["msg_type"] == "ProcessEndWork":
+            elif data["msg_type"] == MessageType.SHUTDOWN.value:
                 response_shared_data = self.remove_finished_process(shared_data, data)
             
             if response_shared_data is not None:
@@ -73,14 +75,14 @@ class DisturbedMonitor:
         self.critical_section_queue.pop(0)
         print("Got release message from process:", data["From_process"], "Status: ", data["Status"], " Condition name: ", data["condition_name"], "replay messages left: ", self.replay_from_processes_left)
 
-        if data["Status"] == "wait" and len(self.critical_section_queue) > 0:
+        if data["Status"] == ReleaseStatus.WAIT.value and len(self.critical_section_queue) > 0:
             processid_want_critical_section = self.critical_section_queue[0]
 
             if processid_want_critical_section[0] == self.device_process_id:
                 self.critical_section_queue.pop(0)
                 return shared_data  # Return the buffer and indices after entering critical section   
 
-        elif data["Status"] == "notify":
+        elif data["Status"] == ReleaseStatus.NOTIFY.value:
             if self.waiting_for_notify and data["condition_name"] == self.condintion_name:        
                 self.waiting_for_notify = False                        
                 self.send_request_message()
@@ -101,7 +103,7 @@ class DisturbedMonitor:
     def wait(self,shared_data,condition_name): #TODO tutaj bym tabele dodal a teraz zmienne
         self.condintion_name = condition_name
         self.waiting_for_notify = True
-        self.send_release_message("wait",shared_data)  # Release message with "no" values_changed
+        self.send_release_message(ReleaseStatus.WAIT,shared_data)  # Release message with "no" values_changed
         return self.get_message(shared_data)
 
     def notify(self,shared_data,condition_name):
@@ -110,7 +112,7 @@ class DisturbedMonitor:
         #     return buffer, in_index, out_index
         
         self.condintion_name = condition_name
-        self.send_release_message("notify", shared_data)  # Release message with "yes" value
+        self.send_release_message(ReleaseStatus.NOTIFY, shared_data)  # Release message with "yes" value
         # return self.get_message(buffer,in_index,out_index)
 
     def acquire_lock(self,shared_data): #aquirelock
@@ -128,23 +130,23 @@ class DisturbedMonitor:
         print("Requesting critical section at time:", send_time)
 
         self.critical_section_queue.append((self.device_process_id ,send_time)) 
-        request_data = {"msg_type": "Request" , "process":  self.device_process_id, "time": time.time()}
+        request_data = {"msg_type":MessageType.REQUEST , "process":  self.device_process_id, "time": time.time()}
 
         message_request = json.dumps(request_data).encode('utf-8') #mozliwe ze nieporzebne
         self.pub_socket.send(message_request) #protocol buffers
     
-    def send_replay_message(self,process_id):
-        request_data = {"msg_type": "Replay","process":  process_id, "From_process": self.device_process_id}
+    def send_replay_message(self,replay_process_id):
+        request_data = {"msg_type": MessageType.REPLAY,"process":  replay_process_id, "From_process": self.device_process_id}
         message_request = json.dumps(request_data).encode('utf-8') #mozliwe ze nieporzebne
-        print("Sending replay message to process:", process_id)
+        print("Sending replay message to process:", replay_process_id)
 
         self.pub_socket.send(message_request) #protocol buffers //TODO rozroznic sockety????
 
     def send_release_message(self,status,shared_data):        
-        if status == "notify":
-            request_data = {"msg_type": "Release","Status": "notify", "condition_name": self.condintion_name, "shared_data": shared_data, "From_process": self.device_process_id} #TODO enum  status??
+        if status == ReleaseStatus.NOTIFY:
+            request_data = {"msg_type": MessageType.RELEASE ,"Status": ReleaseStatus.NOTIFY, "condition_name": self.condintion_name, "shared_data": shared_data, "From_process": self.device_process_id} #TODO enum  status??
         else:
-            request_data = {"msg_type": "Release","Status": "wait", "condition_name": self.condintion_name, "shared_data": shared_data,"From_process": self.device_process_id } #TODO enum  status??
+            request_data = {"msg_type": MessageType.RELEASE,"Status": ReleaseStatus.WAIT, "condition_name": self.condintion_name, "shared_data": shared_data,"From_process": self.device_process_id } #TODO enum  status??
 
         print("Sending release message with status:", status, "to all processes, condition name:", self.condintion_name)
 
@@ -152,12 +154,22 @@ class DisturbedMonitor:
         self.pub_socket.send(message_request) #protocol buffers //TODO rozroznic sockety????
     
     def join(self):
-        request_data = {"msg_type": "ProcessEndWork", "From_process": self.device_process_id} #TODO form proces usunac
+        request_data = {"msg_type": MessageType.SHUTDOWN, "From_process": self.device_process_id} #TODO form proces usunac
         message_request = json.dumps(request_data).encode('utf-8')
         self.pub_socket.send(message_request)
         print("Process has ended work, no more requests will be sent.")
-               
+    
+class MessageType(str, Enum):
+    """Definiuje typy wiadomości w protokole komunikacyjnym."""
+    REQUEST = "Request"
+    REPLAY = "Replay"
+    RELEASE = "Release"
+    SHUTDOWN = "Shutdown"
 
+class ReleaseStatus(str, Enum):
+    """Definiuje statusy w wiadomości zwalniającej blokadę."""
+    WAIT = "wait"
+    NOTIFY = "notify"
 
 def serialize_shared_data(buffer, in_index,out_index):
   return {
@@ -174,7 +186,6 @@ def deserialize_shared_data(data):
 
 def Consumer(DisturbedMonitor,in_index, buffer, out_index):
     global CAPACITY
-    items_produced = 0
     items_consumed = 0
     dict_data = {}
 
