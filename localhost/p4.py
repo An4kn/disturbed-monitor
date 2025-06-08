@@ -15,20 +15,18 @@ def Producer(DisturbedMonitor,in_index, buffer, out_index):
     counter = 20
 
     while items_produced < 40:
-        buffer,in_index,out_index = deserialize_shared_data(DisturbedMonitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))) #TODO to mozna w sumie usunac ale nie trzeba
+        shared_data = DisturbedMonitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))
+        buffer,in_index,out_index = deserialize_shared_data(shared_data)
         while (in_index + 1) % CAPACITY == out_index:
-            buffer,in_index,out_index = deserialize_shared_data(DisturbedMonitor.wait(serialize_shared_data(buffer, in_index,out_index),"empty"))  # TODO MA BYC TABLICA ZWYKLA
-
+            shared_data = DisturbedMonitor.wait(serialize_shared_data(buffer, in_index,out_index),{},"empty")
+            buffer,in_index,out_index = deserialize_shared_data(shared_data)
+        
         counter += 1
         buffer[in_index] = counter
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         print("Producer produced:", counter)
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
-
         in_index = (in_index + 1) % CAPACITY
-        # time.sleep(0.7)
 
-        DisturbedMonitor.notify(construct_updated_data(buffer,in_index),"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
+        DisturbedMonitor.notify(construct_updated_data(buffer,in_index),"not_empty")
 
         items_produced += 1
 
@@ -43,6 +41,6 @@ input_sub_socket = ["tcp://localhost:5557","tcp://localhost:5556","tcp://localho
 input_time_sleep = 10
 
 DisturbedMonitor = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)
-Producer(DisturbedMonitor,in_index, buffer, out_index)  # Initialize producer with 0 items produced, empty buffer, and in_index at 0
-DisturbedMonitor.join() #to jest taki join()
+Producer(DisturbedMonitor,in_index, buffer, out_index)
+DisturbedMonitor.join()
 

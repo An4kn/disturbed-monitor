@@ -17,15 +17,11 @@ def Consumer(disturbed_monitor, in_index, buffer, out_index):
         buffer, in_index, out_index = deserialize_shared_data(shared_data)
 
         while in_index == out_index:
-            shared_data = disturbed_monitor.wait(serialize_shared_data(buffer, in_index,out_index),"not_empty")
+            shared_data = disturbed_monitor.wait(serialize_shared_data(buffer, in_index,out_index),{},"not_empty")
             buffer, in_index, out_index = deserialize_shared_data(shared_data)
 
         item = buffer[out_index]
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         print("Consumer consumed item:", item)
-        # print("Items consumed so far:", items_consumed+1 )
-
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         out_index = (out_index + 1) % CAPACITY
         disturbed_monitor.notify(update_payload(out_index),"empty")
         items_consumed += 1
