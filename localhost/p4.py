@@ -3,7 +3,7 @@ from disturbed_monitor import DisturbedMonitor
 def serialize_shared_data(buffer, in_index,out_index):
   return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
 
-def construct_updated_data(buffer, in_index):
+def update_payload(buffer, in_index):
     return { 'buffer': buffer, 'in_index': in_index }
 
 def deserialize_shared_data(data):
@@ -26,8 +26,9 @@ def Producer(DisturbedMonitor,in_index, buffer, out_index):
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
 
         in_index = (in_index + 1) % CAPACITY
+        # time.sleep(0.7)
 
-        DisturbedMonitor.notify(construct_updated_data(buffer, in_index),"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
+        DisturbedMonitor.notify(update_payload(buffer,in_index),"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
 
         items_produced += 1
 
@@ -35,10 +36,10 @@ CAPACITY = 10
 buffer = [-1 for _ in range(CAPACITY)]
 in_index = 0
 out_index = 0
-input_device_process_id = "P2"
-input_all_active_processes = {"P1", "P3", "P4"}
-input_pub_socket = "tcp://*:5556"
-input_sub_socket = ["tcp://localhost:5557","tcp://localhost:5558","tcp://localhost:5559"]
+input_device_process_id = "P4"
+input_all_active_processes = {"P1", "P2", "P3"}
+input_pub_socket = "tcp://*:5559"
+input_sub_socket = ["tcp://localhost:5557","tcp://localhost:5556","tcp://localhost:5558"]
 input_time_sleep = 10
 
 DisturbedMonitor = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)

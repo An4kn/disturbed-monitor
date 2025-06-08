@@ -24,20 +24,20 @@ def Consumer(disturbed_monitor, in_index, buffer, out_index):
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         print("Consumer consumed item:", item)
         print("Items consumed so far:", items_consumed+1 )
+
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         out_index = (out_index + 1) % CAPACITY
         disturbed_monitor.notify(update_payload(out_index),"empty")
         items_consumed += 1
 
-# --- Reszta kodu bez zmian ---
 CAPACITY = 10
 buffer = [-1 for _ in range(CAPACITY)]
 in_index = 0
 out_index = 0
-input_device_process_id = "P1"
-input_all_active_processes = {"P2", "P3", "P4"}
-input_pub_socket = "tcp://*:5557"
-input_sub_socket = ["tcp://localhost:5556","tcp://localhost:5558","tcp://localhost:5559"]
+input_device_process_id = "P3"
+input_all_active_processes = {"P2", "P1", "P4"}
+input_pub_socket = "tcp://*:5558"
+input_sub_socket = ["tcp://localhost:5556","tcp://localhost:5557","tcp://localhost:5559"]
 input_time_sleep = 10
 
 DisturbedMonitor_instance = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)

@@ -49,7 +49,7 @@ class DisturbedMonitor:
         print("Get process: ",data["From_process"] , " has ended work, no more requests will be sent.")
         self.all_active_processes.discard(data["From_process"])
         self.replay_from_processes_left.discard(data["From_process"])
-        
+        print("Current active processes: ", self.all_active_processes)
         if not self.critical_section_queue:
             return None
 
@@ -101,7 +101,7 @@ class DisturbedMonitor:
     def wait(self,shared_data,condition_name):
         self.condintion_name = condition_name
         self.waiting_for_notify = True
-        self.send_release_message(ReleaseStatus.WAIT,shared_data)
+        self.send_release_message(ReleaseStatus.WAIT,{})
         return self.get_message(shared_data)
 
     def notify(self,shared_data,condition_name):

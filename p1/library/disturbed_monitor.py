@@ -30,12 +30,9 @@ class DisturbedMonitor:
             msg_response = message.decode('utf-8')
             data = json.loads(msg_response)
             print("queue: ", self.critical_section_queue)
-
-            # --- POPRAWKA: Jawna konwersja string -> Enum ---
             
             msg_type = MessageType(data["msg_type"])
             
-
             if msg_type == MessageType.REPLAY and data["process"] == self.device_process_id:
                 response_shared_data = self.handle_replay_message(data, shared_data)
             elif msg_type == MessageType.REQUEST:
@@ -56,8 +53,7 @@ class DisturbedMonitor:
         if not self.critical_section_queue:
             return None
 
-        processid_want_critical_section = self.critical_section_queue[0]
-        if processid_want_critical_section[0] == self.device_process_id and not self.replay_from_processes_left:
+        if self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
             self.critical_section_queue.pop(0)
             return shared_data
         return None
@@ -69,8 +65,7 @@ class DisturbedMonitor:
         if not self.critical_section_queue:
             return None
 
-        processid_want_critical_section = self.critical_section_queue[0]
-        if processid_want_critical_section[0] == self.device_process_id and not self.replay_from_processes_left:
+        if  self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
             self.critical_section_queue.pop(0)
             return shared_data
         return None
@@ -81,19 +76,16 @@ class DisturbedMonitor:
         self.critical_section_queue.pop(0)
         
         status = ReleaseStatus(data["Status"])
-       
-
         print("Got release message from process:", data["From_process"], "Status: ", status, " Condition name: ", data["condition_name"], "replay messages left: ", self.replay_from_processes_left)
 
         if status == ReleaseStatus.NOTIFY:
             if self.waiting_for_notify and data["condition_name"] == self.condintion_name:
                 self.waiting_for_notify = False
                 self.send_request_message()
-                return None # Po wysłaniu prośby wracamy do nasłuchiwania
+                return None
 
         if self.critical_section_queue:
-            processid_want_critical_section = self.critical_section_queue[0]
-            if processid_want_critical_section[0] == self.device_process_id and not self.replay_from_processes_left:
+            if self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
                 self.critical_section_queue.pop(0)
                 return shared_data
         
@@ -127,12 +119,20 @@ class DisturbedMonitor:
         self.replay_from_processes_left = self.all_active_processes.copy()
         print("Requesting critical section at time:", send_time)
         self.critical_section_queue.append((self.device_process_id ,send_time))
-        request_data = {"msg_type": MessageType.REQUEST.value, "process":  self.device_process_id, "time": time.time()}
+        request_data = {
+            "msg_type": MessageType.REQUEST.value, 
+            "process":  self.device_process_id, 
+            "time": time.time()
+        }     
         message_request = json.dumps(request_data).encode('utf-8')
         self.pub_socket.send(message_request)
 
     def send_replay_message(self,replay_process_id):
-        request_data = {"msg_type": MessageType.REPLAY.value,"process":  replay_process_id, "From_process": self.device_process_id}
+        request_data = {
+            "msg_type": MessageType.REPLAY.value,
+            "process":  replay_process_id,
+            "From_process": self.device_process_id
+        }
         message_request = json.dumps(request_data).encode('utf-8')
         print("Sending replay message to process:", replay_process_id)
         self.pub_socket.send(message_request)
@@ -164,46 +164,3 @@ class MessageType(str, Enum):
 class ReleaseStatus(str, Enum):
     WAIT = "wait"
     NOTIFY = "notify"
-
-def serialize_shared_data(buffer, in_index,out_index):
-  return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
-
-def deserialize_shared_data(data):
-  buffer = data.get('buffer')
-  in_index = data.get('in_index')
-  out_index = data.get('out_index')
-  return buffer, in_index, out_index
-
-def Consumer(disturbed_monitor, in_index, buffer, out_index):
-    global CAPACITY
-    items_consumed = 0
-    while items_consumed < 20:
-        shared_data = disturbed_monitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))
-        buffer, in_index, out_index = deserialize_shared_data(shared_data)
-
-        while in_index == out_index:
-            shared_data = disturbed_monitor.wait(serialize_shared_data(buffer, in_index,out_index),"not_empty")
-            buffer, in_index, out_index = deserialize_shared_data(shared_data)
-
-        item = buffer[out_index]
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
-        print("Consumer consumed item:", item)
-        print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
-        out_index = (out_index + 1) % CAPACITY
-        disturbed_monitor.notify(serialize_shared_data(buffer, in_index,out_index),"empty")
-        items_consumed += 1
-
-# --- Reszta kodu bez zmian ---
-CAPACITY = 10
-buffer = [-1 for _ in range(CAPACITY)]
-in_index = 0
-out_index = 0
-input_device_process_id = "P1"
-input_all_active_processes = {"P2"}
-input_pub_socket = "tcp://*:5557"
-input_sub_socket = ["tcp://172.17.0.2:5556","tcp://172.17.0.5:5558","tcp://172.17.0.6:5559"]
-input_time_sleep = 4
-
-DisturbedMonitor_instance = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)
-Consumer(DisturbedMonitor_instance,in_index, buffer, out_index)
-DisturbedMonitor_instance.join()
