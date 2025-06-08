@@ -94,7 +94,7 @@ class DisturbedMonitor:
     def handle_request_message(self, data):
         print("Get request message from: ",data["process"]," process")
         self.critical_section_queue.append((data["process"],data["time"]))
-        self.critical_section_queue.sort(key=lambda x: x[1])
+        self.critical_section_queue.sort(key=lambda x: (x[1],x[0]))
         self.send_replay_message(data["process"])
         return None
 
@@ -122,7 +122,7 @@ class DisturbedMonitor:
         request_data = {
             "msg_type": MessageType.REQUEST.value, 
             "process":  self.device_process_id, 
-            "time": time.time()
+            "time": send_time
         }     
         message_request = json.dumps(request_data).encode('utf-8')
         self.pub_socket.send(message_request)

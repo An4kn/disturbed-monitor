@@ -3,7 +3,7 @@ from disturbed_monitor import DisturbedMonitor
 def serialize_shared_data(buffer, in_index,out_index):
   return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
 
-def update_payload(out_index):
+def construct_updated_data(out_index):
     return { 'out_index': out_index}
 
 def deserialize_shared_data(data):
@@ -23,10 +23,10 @@ def Consumer(disturbed_monitor, in_index, buffer, out_index):
         item = buffer[out_index]
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         print("Consumer consumed item:", item)
-        print("Items consumed so far:", items_consumed+1 )
+        # print("Items consumed so far:", items_consumed+1 )
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         out_index = (out_index + 1) % CAPACITY
-        disturbed_monitor.notify(update_payload(out_index),"empty")
+        disturbed_monitor.notify(construct_updated_data(out_index),"empty")
         items_consumed += 1
 
 # --- Reszta kodu bez zmian ---

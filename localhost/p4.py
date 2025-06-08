@@ -3,7 +3,7 @@ from disturbed_monitor import DisturbedMonitor
 def serialize_shared_data(buffer, in_index,out_index):
   return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
 
-def update_payload(buffer, in_index):
+def construct_updated_data(buffer, in_index):
     return { 'buffer': buffer, 'in_index': in_index }
 
 def deserialize_shared_data(data):
@@ -11,10 +11,10 @@ def deserialize_shared_data(data):
 
 def Producer(DisturbedMonitor,in_index, buffer, out_index):
     global CAPACITY
-    items_produced = 0
-    counter = 0
+    items_produced = 20
+    counter = 20
 
-    while items_produced < 20:
+    while items_produced < 40:
         buffer,in_index,out_index = deserialize_shared_data(DisturbedMonitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))) #TODO to mozna w sumie usunac ale nie trzeba
         while (in_index + 1) % CAPACITY == out_index:
             buffer,in_index,out_index = deserialize_shared_data(DisturbedMonitor.wait(serialize_shared_data(buffer, in_index,out_index),"empty"))  # TODO MA BYC TABLICA ZWYKLA
@@ -28,7 +28,7 @@ def Producer(DisturbedMonitor,in_index, buffer, out_index):
         in_index = (in_index + 1) % CAPACITY
         # time.sleep(0.7)
 
-        DisturbedMonitor.notify(update_payload(buffer,in_index),"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
+        DisturbedMonitor.notify(construct_updated_data(buffer,in_index),"not_empty")  # Signal to consumers  #TODO tutaj zmienna not_full i full nie musi byc w pelni transparentne btw
 
         items_produced += 1
 

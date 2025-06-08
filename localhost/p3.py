@@ -23,7 +23,7 @@ def Consumer(disturbed_monitor, in_index, buffer, out_index):
         item = buffer[out_index]
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         print("Consumer consumed item:", item)
-        print("Items consumed so far:", items_consumed+1 )
+        # print("Items consumed so far:", items_consumed+1 )
 
         print("||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
         out_index = (out_index + 1) % CAPACITY
