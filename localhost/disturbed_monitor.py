@@ -4,27 +4,32 @@ import json
 from enum import Enum
 
 class DisturbedMonitor:
-    def __init__(self, input_device_process_id,input_all_active_processes, input_pub_socket, input_sub_socket,input_time_sleep):
-        self.critical_section_queue = []
+    def __init__(self, input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep):
+        self._shared_state_keys = set()
+        self._updated_fields = set()
+        self._critical_section_queue = []
         self.device_process_id = input_device_process_id
-        self.all_active_processes = input_all_active_processes
+        self._all_active_processes = input_all_active_processes
+        
         context = zmq.Context()
         self.pub_socket = context.socket(zmq.PUB)
         self.pub_socket.bind(input_pub_socket)
+        
         self.sub_socket = context.socket(zmq.SUB)
-
-        for sub_socket in input_sub_socket:
-            self.sub_socket.connect(sub_socket)
+        for sub_socket_addr in input_sub_socket:
+            self.sub_socket.connect(sub_socket_addr)
 
         self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-        self.replay_from_processes_left = self.all_active_processes.copy()
-        self.waiting_for_notify = False
-        self.condintion_name = ""
+        self._replay_from_processes_left = self._all_active_processes.copy()
+        self._waiting_for_notify = False
+        self._condition_name = ""
+        
         time.sleep(input_time_sleep)
+        self._updated_fields.clear()
 
-    def get_message(self,shared_data):
+    def get_message(self):
         while True:
-            response_shared_data = None
+            should_return = False
             message = self.sub_socket.recv()
             msg_response = message.decode('utf-8')
             data = json.loads(msg_response)
@@ -32,116 +37,125 @@ class DisturbedMonitor:
             msg_type = MessageType(data["msg_type"])
             
             if msg_type == MessageType.REPLAY and data["process"] == self.device_process_id:
-                response_shared_data = self.handle_replay_message(data, shared_data)
+                should_return = self.handle_replay_message(data)
             elif msg_type == MessageType.REQUEST:
-                response_shared_data = self.handle_request_message(data)
+                self.handle_request_message(data)
             elif msg_type == MessageType.RELEASE:
-                response_shared_data = self.handle_release_message(data, shared_data)
+                should_return = self.handle_release_message(data)
             elif msg_type == MessageType.SHUTDOWN:
-                response_shared_data = self.remove_finished_process(shared_data, data)
+                should_return = self.remove_finished_process(data)
 
-            if response_shared_data is not None:
-                return response_shared_data
+            if should_return:
+                return
 
-    def remove_finished_process(self, shared_data, data):
-        self.all_active_processes.discard(data["From_process"])
-        self.replay_from_processes_left.discard(data["From_process"])
-        if not self.critical_section_queue:
-            return None
-
-        if self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
-            self.critical_section_queue.pop(0)
-            return shared_data
-        return None
-
-    def handle_replay_message(self, data, shared_data):
-        self.replay_from_processes_left.discard(data["From_process"])
-
-        if not self.critical_section_queue:
-            return None
-
-        if  self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
-            self.critical_section_queue.pop(0)
-            return shared_data
-        return None
-
-    def handle_release_message(self, data, shared_data):
-        shared_data.update(data["shared_data"])
-        self.critical_section_queue.pop(0)
-
-        status = ReleaseStatus(data["Status"])
-
-        if status == ReleaseStatus.NOTIFY:
-            if self.waiting_for_notify and data["condition_name"] == self.condintion_name:
-                self.waiting_for_notify = False
-                self.send_request_message()
-                return None
-
-        if self.critical_section_queue:
-            if self.critical_section_queue[0][0] == self.device_process_id and not self.replay_from_processes_left:
-                self.critical_section_queue.pop(0)
-                return shared_data
+    def remove_finished_process(self, data):
+        finished_proc = data["from_process"]
+        self._all_active_processes.discard(finished_proc)
+        self._replay_from_processes_left.discard(finished_proc)
         
-        return None
+        if self._critical_section_queue and self._critical_section_queue[0][0] == self.device_process_id and not self._replay_from_processes_left:
+            self._critical_section_queue.pop(0)
+            return True
+        return False
+
+    def handle_replay_message(self, data):
+        self._replay_from_processes_left.discard(data["from_process"])
+
+        if self._critical_section_queue and self._critical_section_queue[0][0] == self.device_process_id and not self._replay_from_processes_left:
+            self._critical_section_queue.pop(0)
+            return True
+        return False
+
+    def handle_release_message(self, data):
+        self.deserialize_and_update_state(data["shared_data"])
+        if self._critical_section_queue:
+            self._critical_section_queue.pop(0)
+        
+        status = ReleaseStatus(data["Status"])
+        if status == ReleaseStatus.NOTIFY:
+            condition_name = data.get("condition_name")
+            if self._waiting_for_notify and condition_name == self._condition_name:
+                self._waiting_for_notify = False
+                self.send_request_message()
+
+        if self._critical_section_queue and self._critical_section_queue[0][0] == self.device_process_id and not self._replay_from_processes_left:
+            self._critical_section_queue.pop(0)
+            return True
+        return False
 
     def handle_request_message(self, data):
-        self.critical_section_queue.append((data["process"],data["time"]))
-        self.critical_section_queue.sort(key=lambda x: (x[1],x[0]))
+        self._critical_section_queue.append((data["process"], data["time"]))
+        self._critical_section_queue.sort(key=lambda x: (x[1], x[0]))
         self.send_replay_message(data["process"])
-        return None
 
-    def wait(self,shared_data,update_shared_data, condition_name):
-        self.condintion_name = condition_name
-        self.waiting_for_notify = True
-        self.send_release_message(ReleaseStatus.WAIT,update_shared_data)
-        return self.get_message(shared_data)
+    def wait(self, condition_name):
+        self._condition_name = condition_name
+        self._waiting_for_notify = True
+        self.send_release_message(ReleaseStatus.WAIT)
+        self.get_message()
 
-    def notify(self,update_shared_data,condition_name):
-        self.condintion_name = condition_name
-        self.send_release_message(ReleaseStatus.NOTIFY, update_shared_data)
+    def notify(self, condition_name):
+        self._condition_name = condition_name
+        self.send_release_message(ReleaseStatus.NOTIFY)
     
-    def acquire_lock(self,shared_data):
-        if not self.all_active_processes:
-            return shared_data
+    def acquire_lock(self):
+        if not self._all_active_processes:
+            return
         self.send_request_message()
-        return self.get_message(shared_data)
+        self.get_message()
 
     def send_request_message(self):
         send_time = time.time()
-        self.replay_from_processes_left = self.all_active_processes.copy()
-        self.critical_section_queue.append((self.device_process_id ,send_time))
-        request_data = {
-            "msg_type": MessageType.REQUEST.value, 
-            "process":  self.device_process_id, 
-            "time": send_time
-        }     
-        message_request = json.dumps(request_data).encode('utf-8')
-        self.pub_socket.send(message_request)
+        self._replay_from_processes_left = self._all_active_processes.copy()
+        self._critical_section_queue.append((self.device_process_id, send_time))
+        self._critical_section_queue.sort(key=lambda x: (x[1], x[0]))
+        
+        request_data = {"msg_type": MessageType.REQUEST.value, "process": self.device_process_id, "time": send_time}
+        self.pub_socket.send_json(request_data)
 
-    def send_replay_message(self,replay_process_id):
-        request_data = {
-            "msg_type": MessageType.REPLAY.value,
-            "process":  replay_process_id,
-            "From_process": self.device_process_id
-        }
-        message_request = json.dumps(request_data).encode('utf-8')
-        self.pub_socket.send(message_request)
+    def send_replay_message(self, replay_process_id):
+        request_data = {"msg_type": MessageType.REPLAY.value, "process": replay_process_id, "from_process": self.device_process_id}
+        self.pub_socket.send_json(request_data)
 
-    def send_release_message(self,status,shared_data):
+    def send_release_message(self, status):
+        fields_to_send = list(self._updated_fields)
+        
         request_data = {
             "msg_type": MessageType.RELEASE.value,
             "Status": status.value,
-            "condition_name": self.condintion_name,
-            "shared_data": shared_data,
-            "From_process": self.device_process_id
+            "condition_name": self._condition_name,
+            "shared_data": self.serialize_state(fields=fields_to_send),
+            "from_process": self.device_process_id
         }
-        message_request = json.dumps(request_data).encode('utf-8')
-        self.pub_socket.send(message_request)
+        self.pub_socket.send_json(request_data)
+        self._updated_fields.clear()
 
     def join(self):
-        request_data = {"msg_type": MessageType.SHUTDOWN.value, "From_process": self.device_process_id}
-        message_request = json.dumps(request_data).encode('utf-8')
-        self.pub_socket.send(message_request)
+        request_data = {"msg_type": MessageType.SHUTDOWN.value, "from_process": self.device_process_id}
+        self.pub_socket.send_json(request_data)
+        time.sleep(2)
+
+    def serialize_state(self, fields=None):
+        state = {}
+        keys_to_serialize = fields if fields is not None else self._shared_state_keys
+        for key in keys_to_serialize:
+            if hasattr(self, key):
+                state[key] = getattr(self, key)
+        return state
+
+    def deserialize_and_update_state(self, state_data_dict):
+        if not state_data_dict: return
+        for key, value in state_data_dict.items():
+            super().__setattr__(key, value)
+            
+    def set_field_updated(self, field_name):
+        if field_name in self._shared_state_keys:
+            self._updated_fields.add(field_name)
+
+    def __setattr__(self, key, value):
+        if hasattr(self, '_shared_state_keys') and key in self._shared_state_keys:
+            self._updated_fields.add(key)
+        super().__setattr__(key, value)
 
 class MessageType(str, Enum):
     REQUEST = "Request"

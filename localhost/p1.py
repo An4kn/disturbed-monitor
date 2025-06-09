@@ -1,41 +1,36 @@
 from disturbed_monitor import DisturbedMonitor
 
-def serialize_shared_data(buffer, in_index,out_index):
-  return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
+class ConsumerMonitor(DisturbedMonitor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shared_state_keys.update(["buffer", "in_index", "out_index", "CAPACITY"])
 
-def construct_updated_data(out_index):
-    return { 'out_index': out_index}
+        self.CAPACITY = 10
+        self.buffer = [-1 for _ in range(self.CAPACITY)]
+        self.in_index = 0
+        self.out_index = 0
 
-def deserialize_shared_data(data):
-  return data['buffer'], data['in_index'], data['out_index']
+    def Consumer(self):
+      items_consumed = 0
+      while items_consumed < 20:
+          self.acquire_lock()
 
-def Consumer(disturbed_monitor, in_index, buffer, out_index):
-    global CAPACITY
-    items_consumed = 0
-    while items_consumed < 20:
-        shared_data = disturbed_monitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))
-        buffer, in_index, out_index = deserialize_shared_data(shared_data)
+          while self.in_index == self.out_index:
+              self.wait("not_empty")
 
-        while in_index == out_index:
-            shared_data = disturbed_monitor.wait(serialize_shared_data(buffer, in_index,out_index),{},"not_empty")
-            buffer, in_index, out_index = deserialize_shared_data(shared_data)
+          item = self.buffer[self.out_index]
+          
+          print("Consumer consumed item:", item)
+          self.out_index = (self.out_index + 1) % self.CAPACITY
+          self.notify("empty")
+          items_consumed += 1
 
-        item = buffer[out_index]
-        print("Consumer consumed item:", item)
-        out_index = (out_index + 1) % CAPACITY
-        disturbed_monitor.notify(construct_updated_data(out_index),"empty")
-        items_consumed += 1
-
-CAPACITY = 10
-buffer = [-1 for _ in range(CAPACITY)]
-in_index = 0
-out_index = 0
-input_device_process_id = "P1"
-input_all_active_processes = {"P2", "P3", "P4"}
-input_pub_socket = "tcp://*:5557"
-input_sub_socket = ["tcp://localhost:5556","tcp://localhost:5558","tcp://localhost:5559"]
-input_time_sleep = 10
-
-DisturbedMonitor_instance = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)
-Consumer(DisturbedMonitor_instance,in_index, buffer, out_index)
-DisturbedMonitor_instance.join()
+if __name__ == '__main__':    
+    input_device_process_id = "P1"
+    input_all_active_processes = {"P2", "P3", "P4"}
+    input_pub_socket = "tcp://*:5557"
+    input_sub_socket = ["tcp://localhost:5556","tcp://localhost:5558","tcp://localhost:5559"]
+    input_time_sleep = 10
+    Monitor = ConsumerMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)
+    Monitor.Consumer()
+    Monitor.join()

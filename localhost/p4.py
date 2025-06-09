@@ -1,46 +1,49 @@
-from disturbed_monitor import DisturbedMonitor
+from disturbed_monitor import DisturbedMonitor 
 
-def serialize_shared_data(buffer, in_index,out_index):
-  return { "buffer": buffer, "in_index": in_index, "out_index": out_index }
+class ProducerMonitor(DisturbedMonitor):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shared_state_keys.update(["buffer", "in_index", "out_index", "CAPACITY"])
 
-def construct_updated_data(buffer, in_index):
-    return { 'buffer': buffer, 'in_index': in_index }
+        self.CAPACITY = 10
+        self.buffer = [-1 for _ in range(self.CAPACITY)]
+        self.in_index = 0
+        self.out_index = 0
 
-def deserialize_shared_data(data):
-  return data['buffer'], data['in_index'], data['out_index']
+    def produce(self):
+        items_produced = 20
+        items_to_produce = 40
+        counter = 20
+        while items_produced < items_to_produce:
+          self.acquire_lock()
 
-def Producer(DisturbedMonitor,in_index, buffer, out_index):
-    global CAPACITY
-    items_produced = 20
-    counter = 20
+          while (self.in_index + 1) % self.CAPACITY == self.out_index:
+              self.wait("empty")
 
-    while items_produced < 40:
-        shared_data = DisturbedMonitor.acquire_lock(serialize_shared_data(buffer, in_index,out_index))
-        buffer,in_index,out_index = deserialize_shared_data(shared_data)
-        while (in_index + 1) % CAPACITY == out_index:
-            shared_data = DisturbedMonitor.wait(serialize_shared_data(buffer, in_index,out_index),{},"empty")
-            buffer,in_index,out_index = deserialize_shared_data(shared_data)
-        
-        counter += 1
-        buffer[in_index] = counter
-        print("Producer produced:", counter)
-        in_index = (in_index + 1) % CAPACITY
+          counter += 1
+          self.buffer[self.in_index] = counter
+          self.set_field_updated("buffer")
+    
+          print(f"Producer ({self.device_process_id}) produced: {counter}")
+          self.in_index = (self.in_index + 1) % self.CAPACITY
+          self.notify("not_empty")  
+          items_produced += 1
 
-        DisturbedMonitor.notify(construct_updated_data(buffer,in_index),"not_empty")
 
-        items_produced += 1
+if __name__ == '__main__':
+    input_device_process_id = "P4"
+    input_all_active_processes = {"P1", "P2", "P3"}
+    input_pub_socket = "tcp://*:5559"
+    input_sub_socket = ["tcp://localhost:5557","tcp://localhost:5556","tcp://localhost:5558"]
+    input_time_sleep = 10
 
-CAPACITY = 10
-buffer = [-1 for _ in range(CAPACITY)]
-in_index = 0
-out_index = 0
-input_device_process_id = "P4"
-input_all_active_processes = {"P1", "P2", "P3"}
-input_pub_socket = "tcp://*:5559"
-input_sub_socket = ["tcp://localhost:5557","tcp://localhost:5556","tcp://localhost:5558"]
-input_time_sleep = 10
-
-DisturbedMonitor = DisturbedMonitor(input_device_process_id, input_all_active_processes, input_pub_socket, input_sub_socket, input_time_sleep)
-Producer(DisturbedMonitor,in_index, buffer, out_index)
-DisturbedMonitor.join()
-
+    monitor = ProducerMonitor(
+        input_device_process_id, 
+        input_all_active_processes, 
+        input_pub_socket, 
+        input_sub_socket, 
+        input_time_sleep
+    )
+    
+    monitor.produce()
+    monitor.join()
